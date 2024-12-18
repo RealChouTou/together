@@ -5,6 +5,7 @@ use std::process::Command;
 
 #[derive(Default)]
 struct App {
+    watch_time: String,
     start_time: String,
     full_screen: bool,
     file_path: String,
@@ -17,6 +18,7 @@ pub enum Message {
     OpenFile,
     FileSelected(Option<String>),
     InputChanged(String),
+    WatchTimeChanged(String),
 }
 impl App {
     pub fn view(&self) -> Element<Message> {
@@ -24,6 +26,14 @@ impl App {
         let content = Column::new()
             .padding(20)
             .align_x(Center)
+            .push(
+                text_input("watch time", &self.watch_time)
+                    .width(300)
+                    .on_input(Message::WatchTimeChanged),
+            )
+            .push(horizontal_space().height(20))
+            .push(text(self.watch_time.clone()))
+            .push(horizontal_space().height(20))
             .push(
                 text_input("start time", &self.start_time)
                     .width(300)
@@ -91,6 +101,10 @@ impl App {
             }
             Message::InputChanged(input) => {
                 self.start_time = input;
+                Task::none()
+            }
+            Message::WatchTimeChanged(input) => {
+                self.watch_time = input;
                 Task::none()
             }
             _ => Task::none(),
