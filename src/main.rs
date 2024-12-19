@@ -1,9 +1,18 @@
+#![windows_subsystem = "windows"]
 use chrono::prelude::*;
-use chrono::Utc;
-use iced::widget::{button, horizontal_space, text, text_editor, text_input, Column, Container};
-use iced::{time, Background, Center, Color, Element, Length, Subscription, Task};
+use env_logger::Env;
+use iced::border::width;
+use iced::widget::{
+    button, horizontal_space, text, text_editor, text_input, Column, Container, Row,
+};
+use iced::window::{icon, Icon, Position, Settings};
+use iced::{
+    exit, time, Background, Center, Color, Element, Left, Length, Padding, Size, Subscription, Task,
+};
+use log::*;
 use rfd::{AsyncFileDialog, FileDialog};
 use std::process::Command;
+
 #[derive(Default)]
 struct App {
     watch_time: String,
@@ -28,29 +37,42 @@ impl App {
     pub fn view(&self) -> Element<Message> {
         // We use a column: a simple vertical layout
         let content = Column::new()
-            .padding(20)
-            .align_x(Center)
+            .padding(Padding {
+                top: 100.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 260.0,
+            })
             .push(
-                text_input("watch time", &self.watch_time)
-                    .width(300)
-                    .on_input(Message::WatchTimeChanged),
+                Row::new().align_y(Center).push(text("Watch time: ")).push(
+                    text_input("13:20", &self.watch_time)
+                        .width(100)
+                        .on_input(Message::WatchTimeChanged),
+                ),
             )
             .push(horizontal_space().height(20))
-            .push(text(self.watch_time.clone()))
+            .push(text(&self.watch_time))
             .push(horizontal_space().height(20))
             .push(
-                text_input("start time", &self.start_time)
-                    .width(300)
-                    .on_input(Message::InputChanged),
+                Row::new()
+                    .align_y(Center)
+                    .push(text("Video begin second: "))
+                    .push(
+                        text_input("20", &self.start_time)
+                            .width(100)
+                            .on_input(Message::InputChanged),
+                    ),
             )
             .push(horizontal_space().height(20))
-            .push(text(self.start_time.clone()))
+            .push(text(&self.start_time))
             .push(horizontal_space().height(20))
             .push(button("Select file").on_press(Message::OpenFile))
             .push(horizontal_space().height(20))
-            .push(text(self.file_path.clone()))
+            .push(text(&self.file_path))
             .push(horizontal_space().height(20))
-            .push(button("Start").on_press(Message::Start));
+            .push(button("Start").on_press(Message::Start))
+            .push(horizontal_space().height(20))
+            .push(text(&self.info));
         Container::new(content)
             .style(|theme| {
                 iced::widget::container::Style {
@@ -58,14 +80,16 @@ impl App {
                     ..Default::default()
                 }
             })
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            // .align_x(Center)
+            // .align_y(Center)
             .into()
     }
     fn subscription(&self) -> Subscription<Message> {
         // 每秒触发一次 TimerTick 消息 (如果需要定时重复输出，可以保留此行)
         if self.schedule_running {
-            time::every(time::Duration::from_millis(1)).map(|_| Message::Tick)
+            time::every(time::Duration::from_millis(20)).map(|_| Message::Tick)
         } else {
             Subscription::none()
         }
@@ -74,12 +98,13 @@ impl App {
         match message {
             Message::Start => {
                 self.schedule_running = true;
-                println!("please wait");
+                self.info = format!("{} {}", "Please wait to", self.watch_time);
+                info!("please wait");
                 Task::none()
             }
             Message::OpenFile => {
                 // 使用 tinyfiledialogs 打开文件对话框
-                println!("Opening file");
+                debug!("Opening file");
                 Task::perform(
                     async {
                         AsyncFileDialog::new()
@@ -92,14 +117,25 @@ impl App {
             }
             Message::FileSelected(path) => {
                 self.file_path = path.unwrap();
-                println!("{}", self.file_path);
+                debug!("{}", self.file_path);
                 Task::none()
             }
             Message::InputChanged(input) => {
-                self.start_time = input;
+                self.info = "".to_string();
+                if let Ok(_) = input.parse::<u32>() {
+                    self.start_time = input;
+                } else {
+                    self.info = "Invalid video begin second,example: 10".to_string()
+                }
                 Task::none()
             }
             Message::WatchTimeChanged(input) => {
+                self.info = "".to_string();
+                let vec = input.split(":").collect::<Vec<&str>>();
+                let size = vec.len();
+                if size != 2 {
+                    self.info = "Invalid Watch time, example: 13:10".to_string()
+                }
                 self.watch_time = input;
                 Task::none()
             }
@@ -107,7 +143,6 @@ impl App {
                 let now = Local::now();
                 let hour = now.hour();
                 let minute = now.minute();
-                println!("hour: {} minute:{}", hour, minute);
                 // let second = now.second();
                 // let nanosecond = now.nanosecond(); // 纳秒
                 // let millisecond = nanosecond / 1_000_000; // 毫秒
@@ -115,24 +150,25 @@ impl App {
                 let plan_hour = split[0].parse::<u32>().unwrap();
                 let plan_minute = split[1].parse::<u32>().unwrap();
                 let go = plan_hour == hour && plan_minute == minute;
-                if go {
+                if go && self.schedule_running {
+                    self.schedule_running = false;
                     let command = format!(
                         "{}{} {}",
                         "vlc --fullscreen --start-time=",
                         self.start_time,
                         self.file_path.replace("\\", "\\\\")
                     );
-                    println!("{}", command);
+                    debug!("{}", command);
                     let output = Command::new("cmd")
                         .args(&["/C", command.as_str()]) // /C 参数用于运行单个命令并退出
                         .output()
                         .expect("Failed to execute command");
 
                     // 将输出转换为字符串并打印
-                    println!("Status: {}", output.status);
-                    println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
-                    println!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
-                    self.schedule_running = false;
+                    debug!("Status: {}", output.status);
+                    debug!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+                    debug!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+                    // return exit();
                 }
 
                 Task::none()
@@ -142,7 +178,31 @@ impl App {
     }
 }
 fn main() -> iced::Result {
+    env_logger::Builder::from_env(Env::default().default_filter_or("together=debug")).init();
+    // Load the PNG file
+    let img_path = "together.png"; // Path to your PNG file
+    let img = image::open(img_path).expect("Failed to open image");
+
+    // Convert the image to RGBA8
+    let rgba_img = img.to_rgba8();
+    // Get the width, height, and raw RGBA bytes
+    let (width, height) = rgba_img.dimensions();
+    let rgba_bytes: Vec<u8> = rgba_img.into_raw();
     iced::application("Together", App::update, App::view)
+        .window(Settings {
+            size: Size::new(800.0, 600.0),
+            position: Position::Centered,
+            min_size: None,
+            max_size: None,
+            visible: true,
+            resizable: true,
+            decorations: true,
+            transparent: false,
+            level: Default::default(),
+            icon: Some(icon::from_rgba(rgba_bytes, width, height).unwrap()),
+            platform_specific: Default::default(),
+            exit_on_close_request: true,
+        })
         .subscription(App::subscription)
         .run()
 }
